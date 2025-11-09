@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -35,11 +36,23 @@ class JSONExporter:
 
         Returns:
             Path to output JSON file
+
+        Raises:
+            JSONExportError: If filename contains path traversal characters
         """
         if filename is None:
             # Default: {pdfname}_textmap.json
             pdf_stem = self.pdf_path.stem
             filename = f"{pdf_stem}_textmap.json"
+        else:
+            # Sanitize filename to prevent path traversal
+            # Remove any path components
+            filename = os.path.basename(filename)
+            # Check for path traversal attempts
+            if '..' in filename or '/' in filename or '\\' in filename:
+                raise JSONExportError(
+                    f"Filename cannot contain path components: {filename}"
+                )
 
         # Ensure .json extension
         if not filename.endswith('.json'):
@@ -116,6 +129,21 @@ class JSONExporter:
         try:
             output_path = self._get_output_path(output_filename)
             data = self._format_data(text_blocks, total_pages=total_pages)
+
+            # Check write permissions
+            output_dir = output_path.parent
+            if not output_dir.exists():
+                output_dir.mkdir(parents=True, exist_ok=True)
+            if not os.access(output_dir, os.W_OK):
+                raise JSONExportError(
+                    f"Output directory is not writable: {output_dir}"
+                )
+
+            # Warn if file already exists
+            if output_path.exists():
+                logger.warning(
+                    f"JSON file {output_path} already exists, will be overwritten"
+                )
 
             # Write JSON file with pretty formatting
             with open(output_path, 'w', encoding='utf-8') as f:

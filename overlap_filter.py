@@ -36,8 +36,16 @@ class OverlapFilter:
 
         Returns:
             Shapely Polygon object
+
+        Raises:
+            ValueError: If bbox is invalid
         """
         x0, y0, x1, y1 = bbox
+
+        # Validate bbox before creating polygon
+        if x1 <= x0 or y1 <= y0:
+            raise ValueError(f"Invalid bbox: {bbox} (x1 <= x0 or y1 <= y0)")
+
         return Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
 
     def calculate_coverage_ratio(self, box1: TextBlock, box2: TextBlock) -> float:
@@ -65,15 +73,19 @@ class OverlapFilter:
         area1 = poly1.area
         area2 = poly2.area
 
-        if area1 == 0 or area2 == 0:
+        # Check for very small areas to avoid division issues
+        min_area = min(area1, area2)
+        if min_area < 1e-10:  # Very small area threshold
             return 0.0
 
-        coverage_ratio = intersection_area / min(area1, area2)
+        coverage_ratio = intersection_area / min_area
         return coverage_ratio
 
     def detect_overlaps(self, text_blocks: List[TextBlock]) -> List[Tuple[int, int, float]]:
         """
         Detect overlapping bounding boxes.
+        
+        Optimized by grouping blocks by page first to reduce comparisons.
 
         Args:
             text_blocks: List of TextBlock objects
@@ -82,22 +94,41 @@ class OverlapFilter:
             List of tuples (index1, index2, coverage_ratio) for overlapping pairs
         """
         overlaps = []
-        n = len(text_blocks)
+        
+        # Group blocks by page to reduce comparisons
+        pages_dict = {}
+        for idx, block in enumerate(text_blocks):
+            page_num = block.page_number
+            if page_num not in pages_dict:
+                pages_dict[page_num] = []
+            pages_dict[page_num].append((idx, block))
 
-        for i in range(n):
-            for j in range(i + 1, n):
-                # Only check overlaps on the same page
-                if text_blocks[i].page_number != text_blocks[j].page_number:
-                    continue
+        # Process each page separately
+        for page_num, page_blocks in pages_dict.items():
+            n = len(page_blocks)
+            if n < 2:
+                continue  # Need at least 2 blocks to have overlaps
 
-                coverage_ratio = self.calculate_coverage_ratio(text_blocks[i], text_blocks[j])
+            # Compare blocks within the same page
+            for i in range(n):
+                idx_i, block_i = page_blocks[i]
+                for j in range(i + 1, n):
+                    idx_j, block_j = page_blocks[j]
 
-                if coverage_ratio >= self.overlap_threshold:
-                    overlaps.append((i, j, coverage_ratio))
-                    logger.debug(
-                        f"Overlap detected: blocks {i} and {j} "
-                        f"(coverage: {coverage_ratio:.2f})"
-                    )
+                    try:
+                        coverage_ratio = self.calculate_coverage_ratio(block_i, block_j)
+                    except ValueError as e:
+                        logger.warning(
+                            f"Invalid bbox detected during overlap calculation: {e}, skipping"
+                        )
+                        continue
+
+                    if coverage_ratio >= self.overlap_threshold:
+                        overlaps.append((idx_i, idx_j, coverage_ratio))
+                        logger.debug(
+                            f"Overlap detected: blocks {idx_i} and {idx_j} "
+                            f"(coverage: {coverage_ratio:.2f})"
+                        )
 
         logger.info(f"Detected {len(overlaps)} overlapping pairs")
         return overlaps

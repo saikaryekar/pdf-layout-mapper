@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
@@ -140,6 +141,44 @@ class PDFReader:
         rect = page.rect
         return rect.width, rect.height
 
+    def _validate_bbox(
+        self,
+        bbox: Tuple[float, float, float, float],
+        page_width: float,
+        page_height: float
+    ) -> bool:
+        """
+        Validate bounding box coordinates.
+
+        Args:
+            bbox: Tuple of (x0, y0, x1, y1)
+            page_width: Page width in pixels
+            page_height: Page height in pixels
+
+        Returns:
+            True if bbox is valid, False otherwise
+        """
+        x0, y0, x1, y1 = bbox
+
+        # Check for finite values
+        if not all(math.isfinite(coord) for coord in bbox):
+            logger.warning(f"Bbox contains non-finite values: {bbox}")
+            return False
+
+        # Check for valid rectangle (x1 > x0 and y1 > y0)
+        if x1 <= x0 or y1 <= y0:
+            logger.warning(f"Invalid bbox dimensions: {bbox} (x1 <= x0 or y1 <= y0)")
+            return False
+
+        # Warn if bbox extends beyond page bounds (but don't fail)
+        if x0 < 0 or y0 < 0 or x1 > page_width or y1 > page_height:
+            logger.warning(
+                f"Bbox {bbox} extends beyond page bounds "
+                f"({page_width}x{page_height})"
+            )
+
+        return True
+
     def extract_text_blocks(self, page_range: Optional[List[int]] = None) -> List[TextBlock]:
         """
         Extract word-level text with bounding boxes.
@@ -185,7 +224,20 @@ class PDFReader:
                 # Group words into text blocks (by block number)
                 blocks_dict = {}
                 for word_info in words:
-                    x0, y0, x1, y1, word_text, block_no, line_no, word_no = word_info
+                    # Defensive check for unexpected format
+                    if len(word_info) < 8:
+                        logger.warning(f"Unexpected word format: {word_info}, skipping")
+                        continue
+
+                    try:
+                        x0, y0, x1, y1, word_text, block_no, line_no, word_no = word_info
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"Failed to unpack word info: {word_info}, error: {e}, skipping")
+                        continue
+
+                    # Handle None block_no
+                    if block_no is None:
+                        block_no = -1  # Use sentinel value for ungrouped words
 
                     if block_no not in blocks_dict:
                         blocks_dict[block_no] = {
@@ -202,8 +254,22 @@ class PDFReader:
 
                 # Create TextBlock objects
                 for block_no, block_data in blocks_dict.items():
+                    # Skip empty blocks
+                    if not block_data['words']:
+                        logger.debug(f"Skipping empty block {block_no} on page {page_num}")
+                        continue
+
                     text = ' '.join(block_data['words'])
                     bbox = tuple(block_data['bbox'])
+
+                    # Validate bounding box
+                    if not self._validate_bbox(bbox, pdf_width, pdf_height):
+                        logger.warning(
+                            f"Skipping invalid bbox {bbox} for block {block_no} "
+                            f"on page {page_num}"
+                        )
+                        continue
+
                     word_count = len(block_data['words'])
 
                     text_block = TextBlock(

@@ -52,6 +52,14 @@ class PDFBBoxAnnotator:
 
             for block in page_blocks:
                 x0, y0, x1, y1 = block.bbox
+
+                # Validate bounding box coordinates
+                if not (x0 < x1 and y0 < y1):
+                    logger.warning(
+                        f"Invalid bbox {block.bbox} for block on page {page_num}, skipping"
+                    )
+                    continue
+
                 rect = fitz.Rect(x0, y0, x1, y1)
 
                 # Add rectangle annotation
@@ -90,10 +98,10 @@ class PDFBBoxAnnotator:
                 pages_dict[page_num] = []
             pages_dict[page_num].append(block)
 
-        # Annotate each page
+        # Annotate each page - pass only relevant blocks for efficiency
         for page_num in sorted(pages_dict.keys()):
             try:
-                self.annotate_page(page_num, text_blocks)
+                self.annotate_page(page_num, pages_dict[page_num])
             except Exception as e:
                 if isinstance(e, PDFAnnotationError):
                     raise
@@ -121,12 +129,18 @@ class PDFBBoxAnnotator:
                 pdf_suffix = self.pdf_path.suffix
                 output_path = self.pdf_path.parent / f"{pdf_stem}_annotated{pdf_suffix}"
 
+            # Warn if file already exists
+            if output_path.exists():
+                logger.warning(
+                    f"Output file {output_path} already exists, will be overwritten"
+                )
+
             self.pdf_document.save(output_path)
             self.output_path = output_path
             logger.info(f"PDF saved successfully: {output_path}")
 
         except Exception as e:
-            error_msg = f"Failed to save PDF: {str(e)}"
+            error_msg = f"Failed to save PDF to {output_path}: {str(e)}"
             logger.error(error_msg)
             raise PDFAnnotationError(error_msg) from e
 

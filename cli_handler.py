@@ -54,6 +54,7 @@ class CLIHandler:
                         raise ValueError(f"Start page must be <= end page: {part}")
 
                     # Convert to 0-indexed and add range
+                    # Example: "1-5" (1-indexed) -> [0, 1, 2, 3, 4] (0-indexed)
                     pages.extend(range(start - 1, end))
                 except ValueError as e:
                     if "must be" in str(e):
@@ -163,7 +164,7 @@ class CLIHandler:
         Raises:
             ValueError: If arguments are invalid
         """
-        # Validate PDF path
+        # Basic PDF path validation (detailed validation done in PDFReader)
         pdf_path = Path(args.pdf_path)
         if not pdf_path.exists():
             raise ValueError(f"PDF file not found: {pdf_path}")
@@ -182,8 +183,12 @@ class CLIHandler:
                 raise ValueError(f"Invalid page range: {e}") from e
 
         # Validate JSON filename if provided
-        if args.save_json is not None and args.save_json.strip() == '':
-            raise ValueError("--save-json filename cannot be empty")
+        # Note: With nargs='?' and const='', empty string is valid (uses default)
+        # Only check if explicitly set to empty string after strip
+        if args.save_json == '':
+            # This is actually valid (uses default name), but if user wants to
+            # explicitly provide empty, we could reject it. For now, allow it.
+            pass
 
         return True
 
