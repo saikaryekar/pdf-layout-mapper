@@ -149,15 +149,3 @@ The tool uses a custom exception hierarchy:
 - `PDFAnnotationError`: Annotation operation failures
 - `JSONExportError`: JSON export failures
 
-## Notes
-
-- Page numbers in JSON output are 1-indexed (matching user expectations)
-- Bounding box coordinates are in pixel space
-- The tool uses PyMuPDF (imported as `pymupdf`) for PDF operations
-- Overlap filtering uses Shapely for geometric operations
-- All Python files use `from __future__ import annotations` for backward compatibility
-
-## License
-
-This project is part of a coding interview/assessment.
-
